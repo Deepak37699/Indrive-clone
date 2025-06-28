@@ -33,8 +33,10 @@ class Ride(models.Model):
     accepted_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     
-    proposed_fare = models.DecimalField(max_digits=8, decimal_places=2)
+    proposed_fare = models.DecimalField(max_digits=8, decimal_places=2, default=0.00)
     final_fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    eta_minutes = models.IntegerField(null=True, blank=True)
+    distance_km = models.FloatField(null=True, blank=True)
     
     # Bidding system fields
     driver_proposals = models.JSONField(default=list)  # Format: [{"driver": id, "amount": decimal, "timestamp": iso8601}]
@@ -50,3 +52,18 @@ class Ride(models.Model):
 
     def __str__(self):
         return f"Ride from {self.pickup_location} to {self.destination_location} (Status: {self.status})"
+
+class DriverNotification(models.Model):
+    driver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    ride = models.ForeignKey('Ride', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    score = models.FloatField()
+    details = models.JSONField()
+    responded = models.BooleanField(default=False)
+    response_time = models.FloatField(null=True)  # Seconds to respond
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['driver', 'responded']),
+            models.Index(fields=['score'])
+        ]

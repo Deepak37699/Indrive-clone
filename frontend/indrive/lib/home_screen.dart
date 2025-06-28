@@ -26,14 +26,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final TextEditingController _pickupController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
+  final TextEditingController _fareController = TextEditingController(); // New
   bool _isRequestingRide = false;
 
   List<dynamic> _rides = []; // To store rider's or driver's rides
   WebSocketChannel? _channel; // WebSocket channel
   StreamSubscription<Position>? _positionStreamSubscription; // Location stream
   GoogleMapController? _mapController; // Google Map controller
-  Set<Marker> _markers = {}; // Markers for map
-  Set<Polyline> _polylines = {}; // Polylines for map
+  final Set<Marker> _markers = {}; // Markers for map
+  final Set<Polyline> _polylines = {}; // Polylines for map
   Map<String, dynamic>? _activeRide; // Store the currently active ride
 
   @override
@@ -163,12 +164,11 @@ class _HomeScreenState extends State<HomeScreen> {
         throw Exception('Access token not found. Cannot connect WebSocket.');
       }
       // Use wss:// for secure WebSocket connections in production
-      _channel = WebSocketChannel.connect(
-        Uri.parse('ws://127.0.0.1:8000/ws/rides/?token=$accessToken'),
-      );
+      _channel = _rideService.connectToRideUpdates(
+        accessToken,
+      ); // Using RideService method
       _channel?.stream.listen(
         (message) {
-          // Handle incoming WebSocket messages
           final data = jsonDecode(message);
           if (data['type'] == 'ride_update') {
             setState(() {
@@ -180,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 content: Text('Ride Update: ${data['content']['status']}'),
               ),
             );
-            _fetchRides(); // Refresh rides list
+            _fetchRides();
           } else if (data['type'] == 'location_update') {
             final LatLng newPosition = LatLng(
               data['latitude'],
@@ -188,8 +188,34 @@ class _HomeScreenState extends State<HomeScreen> {
             );
             final String markerId = 'user_${data['user_id']}';
             _updateMapMarkers(newPosition, markerId, 'Live Location');
-            // Optionally move camera to new position
             _mapController?.animateCamera(CameraUpdate.newLatLng(newPosition));
+          } else if (data['type'] == 'bid_update') {
+            // Handle new bid updates
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'New Bid for Ride ${data['ride_id']}: \$${data['amount']}',
+                ),
+              ),
+            );
+            _fetchRides(); // Refresh rides to show new bids
+          } else if (data['type'] == 'eta_update') {
+            // Handle ETA updates
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'ETA for Ride ${data['ride_id']}: ${data['eta']} mins',
+                ),
+              ),
+            );
+            // Optionally update UI to display ETA
+          } else if (data['type'] == 'bid.accepted') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Bid Accepted for Ride ${data['ride_id']}!'),
+              ),
+            );
+            _fetchRides();
           } else {
             ScaffoldMessenger.of(
               context,
@@ -322,11 +348,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _fetchRides() async {
     try {
       if (_currentUser['role'] == 'rider') {
-        _rides = await _rideService.getRiderRides();
+        _rides = await _rideService.getRides(userRole: 'rider');
       } else if (_currentUser['role'] == 'driver') {
-        _rides = await _rideService.getDriverRides();
+        _rides = await _rideService.getRides(userRole: 'driver');
       }
-      setState(() {}); // Update UI with new rides
+      setState(() {});
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -344,6 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final newRide = await _rideService.requestRide(
         pickupLocation: _parseLatLng(_pickupController.text),
         destinationLocation: _parseLatLng(_destinationController.text),
+        proposedFare: double.parse(_fareController.text), // Added proposedFare
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -351,7 +378,8 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         _pickupController.clear();
         _destinationController.clear();
-        _fetchRides(); // Refresh rides list
+        _fareController.clear(); // Clear fare controller
+        _fetchRides();
       }
     } catch (e) {
       if (mounted) {
@@ -380,22 +408,117 @@ class _HomeScreenState extends State<HomeScreen> {
     return const LatLng(0.0, 0.0); // Default to (0,0) or handle error
   }
 
-  Future<void> _acceptRide(int rideId) async {
+  Future<void> _acceptBid(int rideId, int bidIndex) async {
     try {
-      await _rideService.updateRideStatus(rideId, 'accepted');
+      await _rideService.acceptBid(rideId, bidIndex);
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Ride accepted!')));
+        ).showSnackBar(const SnackBar(content: Text('Bid accepted!')));
         _fetchRides(); // Refresh rides list
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Error accepting ride: $e')));
+        ).showSnackBar(SnackBar(content: Text('Error accepting bid: $e')));
       }
     }
+  }
+
+  // Helper to build list of driver bids for a ride
+  List<Widget> _buildDriverBids(Map<String, dynamic> ride) {
+    List<Widget> bidWidgets = [];
+    if (ride['driver_proposals'] != null) {
+      for (int i = 0; i < ride['driver_proposals'].length; i++) {
+        final bid = ride['driver_proposals'][i];
+        bidWidgets.add(
+          ListTile(
+            title: Text('Driver Bid: \$${bid['amount']}'),
+            subtitle: Text('Message: ${bid['message'] ?? 'N/A'}'),
+            trailing:
+                _currentUser['role'] == 'rider' && ride['status'] == 'requested'
+                ? ElevatedButton(
+                    onPressed: () => _acceptBid(ride['id'], i),
+                    child: const Text('Accept Bid'),
+                  )
+                : null,
+          ),
+        );
+      }
+    }
+    return bidWidgets;
+  }
+
+  // Dialog for drivers to submit a bid
+  Future<void> _showSubmitBidDialog(int rideId) async {
+    final TextEditingController bidAmountController = TextEditingController();
+    final TextEditingController bidMessageController = TextEditingController();
+
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // User must tap button to close
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Submit Your Bid'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                TextField(
+                  controller: bidAmountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Bid Amount (\$)',
+                    hintText: 'e.g., 15.00',
+                  ),
+                ),
+                TextField(
+                  controller: bidMessageController,
+                  decoration: const InputDecoration(
+                    labelText: 'Message (Optional)',
+                    hintText: 'e.g., "Available in 5 mins"',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Submit'),
+              onPressed: () async {
+                try {
+                  final double amount = double.parse(bidAmountController.text);
+                  await _rideService.submitDriverBid(
+                    rideId,
+                    amount,
+                    bidMessageController.text,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Bid submitted!')),
+                    );
+                    _fetchRides(); // Refresh rides to show new bid
+                  }
+                  Navigator.of(context).pop();
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to submit bid: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -525,6 +648,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       suffixIcon: Icon(Icons.map),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _fareController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Proposed Fare (\$)',
+                      hintText: 'Enter your price offer',
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.attach_money),
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   _isRequestingRide
                       ? const CircularProgressIndicator()
@@ -572,17 +706,52 @@ class _HomeScreenState extends State<HomeScreen> {
                           final ride = _rides[index];
                           return Card(
                             margin: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: ListTile(
+                            child: ExpansionTile(
                               title: Text(
                                 '${ride['pickup_location']} to ${ride['destination_location']}',
                               ),
-                              subtitle: Text('Status: ${ride['status']}'),
-                              trailing: ride['status'] == 'requested'
-                                  ? ElevatedButton(
-                                      onPressed: () => _acceptRide(ride['id']),
-                                      child: const Text('Accept'),
-                                    )
-                                  : null,
+                              subtitle: Text(
+                                'Status: ${ride['status']} - Proposed: \$${ride['proposed_fare']}',
+                              ),
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Rider ID: ${ride['rider']}'),
+                                      Text('Ride ID: ${ride['id']}'),
+                                      const SizedBox(height: 10),
+                                      if (ride['driver_proposals'] != null &&
+                                          ride['driver_proposals'].isNotEmpty)
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Driver Bids:',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            ..._buildDriverBids(ride),
+                                          ],
+                                        )
+                                      else
+                                        const Text('No bids yet.'),
+                                      const SizedBox(height: 10),
+                                      if (ride['status'] == 'requested' &&
+                                          _currentUser['role'] == 'driver')
+                                        ElevatedButton(
+                                          onPressed: () =>
+                                              _showSubmitBidDialog(ride['id']),
+                                          child: const Text('Submit Bid'),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         },

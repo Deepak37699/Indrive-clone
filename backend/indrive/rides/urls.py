@@ -1,9 +1,10 @@
-from django.urls import path
-from .views import RideRequestView, RiderRideListView, DriverRideListView, RideDetailView
+from django.urls import path, include
+from rest_framework.routers import SimpleRouter
+from .views import RideViewSet
+
+router = SimpleRouter()
+router.register(r'', RideViewSet, basename='ride')
 
 urlpatterns = [
-    path('request/', RideRequestView.as_view(), name='ride_request'),
-    path('rider/list/', RiderRideListView.as_view(), name='rider_ride_list'),
-    path('driver/list/', DriverRideListView.as_view(), name='driver_ride_list'),
-    path('<int:pk>/', RideDetailView.as_view(), name='ride_detail'),
+    path('', include(router.urls)),
 ]

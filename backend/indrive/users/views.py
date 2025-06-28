@@ -5,9 +5,7 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
 from .serializers import SendOTPSerializer, VerifyOTPSerializer, UserSerializer
-
-# This will store OTPs temporarily. In a real app, use a database or cache.
-otp_store = {}
+from django.core.cache import cache # Import cache
 
 class SendOTPView(APIView):
     def post(self, request):
@@ -15,7 +13,7 @@ class SendOTPView(APIView):
         if serializer.is_valid():
             phone_number = serializer.validated_data['phone_number']
             otp = str(random.randint(100000, 999999))
-            otp_store[phone_number] = otp
+            cache.set(phone_number, otp, 300) # Store OTP in cache for 5 minutes
             print(f"OTP for {phone_number}: {otp}") # For development purposes
             return Response({'message': 'OTP sent successfully.'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -28,10 +26,12 @@ class VerifyOTPView(APIView):
         if serializer.is_valid():
             phone_number = serializer.validated_data['phone_number']
             otp = serializer.validated_data['otp']
+            print(f"Attempting to verify: Phone={phone_number}, OTP={otp}")
+            print(f"Cached OTP for {phone_number}: {cache.get(phone_number)}")
 
-            if otp_store.get(phone_number) == otp:
-                # OTP is correct, remove it from store
-                del otp_store[phone_number]
+            if cache.get(phone_number) == otp:
+                # OTP is correct, remove it from cache
+                cache.delete(phone_number)
 
                 try:
                     user = User.objects.get(phone_number=phone_number)
@@ -49,6 +49,7 @@ class VerifyOTPView(APIView):
                 }, status=status.HTTP_200_OK)
             else:
                 return Response({'detail': 'Invalid OTP.'}, status=status.HTTP_400_BAD_REQUEST)
+        print(f"Serializer errors: {serializer.errors}") # Add this line
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UserProfileView(APIView):

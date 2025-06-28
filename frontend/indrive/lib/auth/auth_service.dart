@@ -4,12 +4,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthService {
   final String _baseUrl =
-      'http://10.0.2.2:8000/api/auth'; // Use 10.0.2.2 for Android emulator to access host machine (removed trailing slash)
+      'http://10.0.2.2:8000/api/auth'; // Ensure no trailing slash here
   final _storage = const FlutterSecureStorage();
 
   Future<void> sendOtp(String phoneNumber) async {
+    final url = Uri.parse('$_baseUrl/send-otp/'); // Re-added trailing slash to path segment
+    print('Sending OTP request to: $url');
     final response = await http.post(
-      Uri.parse('$_baseUrl/send-otp/'),
+      url,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'phone_number': phoneNumber}),
     );
@@ -21,7 +23,7 @@ class AuthService {
 
   Future<Map<String, dynamic>> verifyOtp(String phoneNumber, String otp) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/verify-otp/'),
+      Uri.parse('$_baseUrl/verify-otp/'), // Re-added trailing slash to path segment
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'phone_number': phoneNumber, 'otp': otp}),
     );
@@ -43,7 +45,7 @@ class AuthService {
     }
 
     final response = await http.get(
-      Uri.parse('$_baseUrl/profile/'),
+      Uri.parse('$_baseUrl/profile/'), // Re-added trailing slash to path segment
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $accessToken',
@@ -64,7 +66,7 @@ class AuthService {
     }
 
     final response = await http.patch(
-      Uri.parse('$_baseUrl/profile/'),
+      Uri.parse('$_baseUrl/profile/'), // Re-added trailing slash to path segment
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $accessToken',

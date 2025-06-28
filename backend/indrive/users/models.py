@@ -43,6 +43,9 @@ class User(AbstractUser):
         default='rider', # Default role can be rider
     )
     is_available = models.BooleanField(default=False) # New field for driver availability
+    current_location = models.CharField(max_length=255, null=True, blank=True) # "lat,lng"
+    average_fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    avg_response_time = models.FloatField(default=0.0) # In seconds
 
     USERNAME_FIELD = 'phone_number'
     REQUIRED_FIELDS = ['role'] # Add 'role' to required fields if you want it to be mandatory during creation
