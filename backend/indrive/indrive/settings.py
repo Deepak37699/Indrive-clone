@@ -12,6 +12,16 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 
+# Ride matching algorithm configuration
+RIDE_MATCHING_WEIGHTS = {
+    'distance': 0.4,       # Prioritize closer drivers
+    'rating': 0.3,         # Higher rated drivers
+    'fare_competitiveness': 0.2,  # Closer to rider's proposed fare
+    'response_time': 0.1   # Faster responders
+}
+MAX_DRIVERS_TO_NOTIFY = 5  # Max drivers to notify per ride
+DRIVER_SEARCH_RADIUS_KM = 20  # Consider drivers within this radius
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
