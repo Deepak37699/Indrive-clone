@@ -13,7 +13,8 @@ from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 from django.urls import path
-from rides.consumers import RideConsumer # We will create this
+from rides.consumers import RideConsumer
+from chat.routing import websocket_urlpatterns
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'indrive.settings')
 
@@ -22,6 +23,7 @@ application = ProtocolTypeRouter({
     "websocket": AuthMiddlewareStack(
         URLRouter([
             path("ws/rides/", RideConsumer.as_asgi()),
+            *websocket_urlpatterns
         ])
     ),
 })
