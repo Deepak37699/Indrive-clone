@@ -12,6 +12,7 @@ import json
 
 class RideViewSet(viewsets.ModelViewSet):
     queryset = Ride.objects.all()
+    queryset = Ride.objects.all()
     serializer_class = RideSerializer
     permission_classes = [IsAuthenticated]
 

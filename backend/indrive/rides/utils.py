@@ -1,6 +1,7 @@
 import googlemaps
 import math
 from django.conf import settings
+from datetime import datetime
 from users.models import User
 
 def calculate_distance(lat1, lon1, lat2, lon2):

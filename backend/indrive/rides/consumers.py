@@ -1,6 +1,10 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from datetime import datetime
+from .models import Ride
+from .utils import calculate_eta
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import AccessToken
 
