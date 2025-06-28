@@ -9,11 +9,25 @@ from django.conf import settings # Import settings to access API key
 class RideSerializer(serializers.ModelSerializer):
     rider = UserSerializer(read_only=True)
     driver = UserSerializer(read_only=True)
+    driver_proposals = serializers.JSONField(read_only=True)
+    passenger_counter_offers = serializers.JSONField(read_only=True)
+    accepted_proposal = serializers.JSONField(read_only=True)
 
     class Meta:
         model = Ride
         fields = '__all__'
-        read_only_fields = ['id', 'rider', 'driver', 'status', 'created_at', 'accepted_at', 'completed_at', 'fare', 'route_polyline']
+        read_only_fields = ['id', 'rider', 'driver', 'status', 'created_at',
+                          'accepted_at', 'completed_at', 'fare', 'route_polyline',
+                          'driver_proposals', 'passenger_counter_offers', 'accepted_proposal']
+
+class BidSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=1)
+    message = serializers.CharField(max_length=200, required=False)
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Bid amount must be positive")
+        return value
 
     def create(self, validated_data):
         # Extract LatLngs and convert to human-readable addresses

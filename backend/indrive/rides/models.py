@@ -9,6 +9,10 @@ class Ride(models.Model):
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     )
+    PROPOSAL_TYPES = (
+        ('passenger', 'Passenger Proposal'),
+        ('driver', 'Driver Proposal'),
+    )
 
     rider = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='rides_as_rider')
     driver = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='rides_as_driver')
@@ -23,12 +27,23 @@ class Ride(models.Model):
     destination_longitude = models.FloatField(null=True, blank=True)
     
     status = models.CharField(max_length=20, choices=RIDE_STATUS_CHOICES, default='requested')
+    proposal_type = models.CharField(max_length=10, choices=PROPOSAL_TYPES, default='passenger')
     
     created_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     
-    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    proposed_fare = models.DecimalField(max_digits=8, decimal_places=2)
+    final_fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    # Bidding system fields
+    driver_proposals = models.JSONField(default=list)  # Format: [{"driver": id, "amount": decimal, "timestamp": iso8601}]
+    passenger_counter_offers = models.JSONField(default=list)  # [{"amount": decimal, "timestamp": iso8601}]
+    accepted_proposal = models.JSONField(null=True, blank=True)  # {"type": "driver/passenger", "amount": decimal, "timestamp": iso8601}
+    
+    # Ride metrics
+    distance_km = models.FloatField(null=True, blank=True)
+    estimated_duration = models.IntegerField(null=True, blank=True)  # in minutes
     
     # Encoded polyline for the route
     route_polyline = models.TextField(null=True, blank=True)

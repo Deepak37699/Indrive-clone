@@ -63,6 +63,27 @@ class RideConsumer(AsyncWebsocketConsumer):
         text_data_json = json.loads(text_data)
         message_type = text_data_json.get('type')
 
+        # Real-time location tracking handler
+        if message_type == 'location_ping':
+            ride_id = text_data_json.get('ride_id')
+            lat = text_data_json.get('latitude')
+            lng = text_data_json.get('longitude')
+            
+            # Broadcast to ride group
+            await self.channel_layer.group_send(
+                f"ride_{ride_id}", {
+                    "type": "location.update",
+                    "latitude": lat,
+                    "longitude": lng,
+                    "timestamp": datetime.now().isoformat(),
+                    "driver_id": str(self.user.id)
+                }
+            )
+            
+            # Update ride ETA
+            await self.update_ride_eta(ride_id, lat, lng)
+            return
+
         if message_type == 'location_update' and self.user.role == 'driver':
             latitude = text_data_json.get('latitude')
             longitude = text_data_json.get('longitude')
@@ -107,3 +128,33 @@ class RideConsumer(AsyncWebsocketConsumer):
             return User.objects.get(id=user_id)
         except User.DoesNotExist:
             return None
+
+    @database_sync_to_async
+    def update_ride_eta(self, ride_id, current_lat, current_lng):
+        """Update ride ETA and broadcast to connected clients"""
+        try:
+            ride = Ride.objects.get(id=ride_id)
+            destination_lat = ride.destination_latitude
+            destination_lng = ride.destination_longitude
+            
+            # Calculate new ETA
+            eta_data = calculate_eta(current_lat, current_lng,
+                                   destination_lat, destination_lng)
+            if eta_data:
+                ride.eta_minutes = eta_data['eta']
+                ride.distance_km = eta_data['distance']
+                ride.save()
+                
+                # Broadcast updated ETA
+                async_to_sync(self.channel_layer.group_send)(
+                    f"ride_{ride_id}", {
+                        "type": "eta.update",
+                        "eta": eta_data['eta'],
+                        "distance": eta_data['distance'],
+                        "polyline": eta_data['polyline']
+                    }
+                )
+        except Ride.DoesNotExist:
+            print(f"Ride {ride_id} not found for ETA update")
+        except Exception as e:
+            print(f"Error updating ETA: {e}")

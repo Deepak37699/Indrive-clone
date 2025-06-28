@@ -10,32 +10,126 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import json
 
-class RideRequestView(generics.CreateAPIView):
+class RideViewSet(viewsets.ModelViewSet):
     queryset = Ride.objects.all()
     serializer_class = RideSerializer
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        # Ensure only riders can request rides
-        if self.request.user.role != 'rider':
-            raise serializers.ValidationError("Only riders can request rides.")
+    def create(self, request, *args, **kwargs):
+        """Handle ride creation with WebSocket notifications"""
+        if request.user.role != 'rider':
+            return Response({"error": "Only riders can request rides"},
+                          status=status.HTTP_403_FORBIDDEN)
         
-        ride = serializer.save(rider=self.request.user, status='requested')
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ride = serializer.save(rider=request.user, status='requested')
 
-        # Send WebSocket notification to all drivers about new ride request
+        # Send WebSocket notification
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
-            "rides",  # Group name for all drivers
-            {
+            "rides", {
                 "type": "ride_update",
-                "message": json.dumps(RideSerializer(ride).data) # Send ride data
+                "message": json.dumps(RideSerializer(ride).data)
             }
         )
-        # Also add rider to their specific ride group for updates
         async_to_sync(channel_layer.group_add)(
-            f"ride_{ride.id}",
-            f"user_{ride.rider.id}"
+            f"ride_{ride.id}", f"user_{ride.rider.id}"
         )
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(detail=True, methods=['post'], url_path='submit-initial')
+    def submit_initial_proposal(self, request, pk=None):
+        ride = self.get_object()
+        if ride.rider != request.user:
+            return Response({"error": "Only ride creator can submit proposals"},
+                          status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = BidSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        ride.proposed_fare = serializer.validated_data['amount']
+        ride.proposal_type = 'passenger'
+        ride.save()
+        
+        return Response(RideSerializer(ride).data)
+
+    @action(detail=True, methods=['post'], url_path='submit-counter')
+    def submit_counter_offer(self, request, pk=None):
+        ride = self.get_object()
+        if ride.rider != request.user:
+            return Response({"error": "Only ride creator can counter offer"},
+                          status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = BidSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        ride.passenger_counter_offers.append({
+            'amount': serializer.validated_data['amount'],
+            'timestamp': timezone.now().isoformat(),
+            'message': serializer.validated_data.get('message', '')
+        })
+        ride.save()
+        
+        return Response(RideSerializer(ride).data)
+
+    @action(detail=True, methods=['post'], url_path='driver-bid')
+    def submit_driver_bid(self, request, pk=None):
+        ride = self.get_object()
+        if not request.user.is_driver:
+            return Response({"error": "Only drivers can bid"},
+                          status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = BidSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        ride.driver_proposals.append({
+            'driver': request.user.id,
+            'amount': serializer.validated_data['amount'],
+            'timestamp': timezone.now().isoformat(),
+            'message': serializer.validated_data.get('message', '')
+        })
+        ride.save()
+
+        # Notify rider about new bid
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{ride.rider.id}", {
+                "type": "bid_update",
+                "ride_id": str(ride.id),
+                "bid": serializer.validated_data['amount']
+            }
+        )
+        
+        return Response(RideSerializer(ride).data)
+
+    @action(detail=True, methods=['post'], url_path='accept-bid/(?P<bid_index>\d+)')
+    def accept_bid(self, request, pk=None, bid_index=None):
+        ride = self.get_object()
+        try:
+            bid = ride.driver_proposals[int(bid_index)]
+        except (IndexError, TypeError):
+            return Response({"error": "Invalid bid index"},
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        ride.accepted_proposal = bid
+        ride.status = 'accepted'
+        ride.driver = User.objects.get(id=bid['driver'])
+        ride.final_fare = bid['amount']
+        ride.save()
+
+        # Notify both parties
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"ride_{ride.id}", {
+                "type": "ride_update",
+                "message": json.dumps(RideSerializer(ride).data)
+            }
+        )
+        
+        return Response(RideSerializer(ride).data)
         
 class RiderRideListView(generics.ListAPIView):
     serializer_class = RideSerializer
