@@ -35,6 +35,47 @@ class AuthService {
     }
   }
 
+  Future<Map<String, dynamic>> getUserProfile() async {
+    final accessToken = await getAccessToken();
+    if (accessToken == null) {
+      throw Exception('Access token not found. User not authenticated.');
+    }
+
+    final response = await http.get(
+      Uri.parse('$_baseUrl/profile/'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to fetch user profile: ${response.body}');
+    }
+  }
+
+  Future<void> updateUserProfile(Map<String, dynamic> userData) async {
+    final accessToken = await getAccessToken();
+    if (accessToken == null) {
+      throw Exception('Access token not found. User not authenticated.');
+    }
+
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/profile/'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode(userData),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update user profile: ${response.body}');
+    }
+  }
+
   Future<String?> getAccessToken() async {
     return await _storage.read(key: 'access_token');
   }

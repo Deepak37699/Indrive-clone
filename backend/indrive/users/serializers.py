@@ -4,7 +4,7 @@ from .models import User
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['phone_number', 'role'] # 'name' and 'email' are not in our custom User model
+        fields = ['phone_number', 'role', 'is_available']
         read_only_fields = ['phone_number']
 
 class SendOTPSerializer(serializers.Serializer):

@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.indrive"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973" // Updated NDK version as per recommendation
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

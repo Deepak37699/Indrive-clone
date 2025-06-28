@@ -42,6 +42,7 @@ class User(AbstractUser):
         choices=ROLE_CHOICES,
         default='rider', # Default role can be rider
     )
+    is_available = models.BooleanField(default=False) # New field for driver availability
 
     USERNAME_FIELD = 'phone_number'
     REQUIRED_FIELDS = ['role'] # Add 'role' to required fields if you want it to be mandatory during creation

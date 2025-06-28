@@ -40,6 +40,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'users', # Our new users app
+    'rides', # Our new rides app
+    'channels', # Add channels
 ]
 
 AUTH_USER_MODEL = 'users.User' # Specify our custom user model
@@ -48,6 +50,14 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
+}
+
+ASGI_APPLICATION = 'indrive.asgi.application' # Configure ASGI application
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer', # For development, use in-memory
+    },
 }
 
 from datetime import timedelta
@@ -165,3 +175,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Google Maps API Key for Backend Geocoding
+GOOGLE_MAPS_API_KEY = 'YOUR_BACKEND_GOOGLE_MAPS_API_KEY_HERE'
