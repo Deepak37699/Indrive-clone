@@ -4,7 +4,8 @@ import 'package:indrive/auth/auth_service.dart'; // Import AuthService to get to
 import 'package:google_maps_flutter/google_maps_flutter.dart'; // Import LatLng
 
 class RideService {
-  final String _baseUrl = 'http://127.0.0.1:8000/api/rides/';
+  final String _baseUrl =
+      'http://10.0.2.2:8000/api/rides/'; // Use 10.0.2.2 for Android emulator to access host machine
   final AuthService _authService = AuthService();
 
   Future<Map<String, dynamic>> requestRide({

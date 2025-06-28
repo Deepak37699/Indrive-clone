@@ -3,7 +3,8 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthService {
-  final String _baseUrl = 'http://127.0.0.1:8000/api/auth/';
+  final String _baseUrl =
+      'http://10.0.2.2:8000/api/auth/'; // Use 10.0.2.2 for Android emulator to access host machine
   final _storage = const FlutterSecureStorage();
 
   Future<void> sendOtp(String phoneNumber) async {

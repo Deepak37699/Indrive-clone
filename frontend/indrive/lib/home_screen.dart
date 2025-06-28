@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart'; // Import Google 
 import 'package:geolocator/geolocator.dart'; // Import geolocator
 import 'dart:async'; // Import for StreamSubscription
 import 'dart:convert'; // Import for jsonEncode
+import 'package:indrive/utils/map_utils.dart'; // Import map_utils.dart
 
 class HomeScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -235,8 +236,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateMapMarkers(pickupLatLng, 'pickup', 'Pickup');
     _updateMapMarkers(destinationLatLng, 'destination', 'Destination');
 
-    // Draw polyline (basic straight line for now)
-    _updateMapPolylines([pickupLatLng, destinationLatLng]);
+    // Draw polyline using decoded string from backend
+    if (ride['route_polyline'] != null) {
+      final List<LatLng> decodedPolyline = decodePolyline(
+        ride['route_polyline'],
+      );
+      _updateMapPolylines(decodedPolyline);
+    } else {
+      // Fallback to basic straight line if no polyline from backend
+      _updateMapPolylines([pickupLatLng, destinationLatLng]);
+    }
 
     // Move camera to show both points
     _mapController?.animateCamera(
@@ -285,6 +294,27 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
           ).showSnackBar(SnackBar(content: Text('Failed to update role: $e')));
         }
+      }
+    }
+  }
+
+  void _updateAvailability(bool value) async {
+    setState(() {
+      _currentUser['is_available'] = value;
+    });
+    try {
+      await _authService.updateUserProfile({'is_available': value});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Availability updated to $value')),
+        );
+        _fetchRides(); // Refresh rides list based on new availability
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update availability: $e')),
+        );
       }
     }
   }
@@ -409,8 +439,37 @@ class _HomeScreenState extends State<HomeScreen> {
               }).toList(),
             ),
             const SizedBox(height: 30),
-            // Rider UI
-            if (_currentUser['role'] == 'rider')
+            // Driver Availability Toggle (only for drivers)
+            if (_currentUser['role'] == 'driver')
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Available for Rides:'),
+                  Switch(
+                    value: _currentUser['is_available'] ?? false,
+                    onChanged: (bool value) {
+                      _updateAvailability(value);
+                    },
+                  ),
+                ],
+              ),
+            const SizedBox(height: 30),
+            // Display Map for Active Ride
+            if (_activeRide != null)
+              Expanded(
+                child: GoogleMap(
+                  onMapCreated: _onMapCreated,
+                  initialCameraPosition: CameraPosition(
+                    target: _parseLatLng(_activeRide!['pickup_location']),
+                    zoom: 12.0,
+                  ),
+                  markers: _markers,
+                  polylines: _polylines,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: true,
+                ),
+              )
+            else if (_currentUser['role'] == 'rider')
               Column(
                 children: [
                   Text(
@@ -498,7 +557,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             // Driver UI
-            if (_currentUser['role'] == 'driver')
+            if (_currentUser['role'] == 'driver' && _activeRide == null)
               Expanded(
                 child: Column(
                   children: [
