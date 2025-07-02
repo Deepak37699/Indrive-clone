@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:indrive/ride_history_screen.dart';
+import 'package:indrive/settings_screen.dart';
+import 'package:indrive/ride_request_screen.dart'; // Import RideRequestScreen
 import 'package:indrive/auth/auth_service.dart';
 import 'package:indrive/login_screen.dart';
 import 'package:indrive/rides/ride_service.dart'; // Import RideService
@@ -159,14 +162,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _connectWebSocket() async {
     try {
-      final accessToken = await _authService.getAccessToken();
+      // Ensure we have a fresh access token
+      String? accessToken = await _authService.getAccessToken();
       if (accessToken == null) {
+        // Attempt to refresh token if available or re-authenticate
+        // For simplicity, just throw error if no token is found.
         throw Exception('Access token not found. Cannot connect WebSocket.');
       }
-      // Use wss:// for secure WebSocket connections in production
-      _channel = _rideService.connectToRideUpdates(
-        accessToken,
-      ); // Using RideService method
+
+      // Re-connect WebSocket if already connected to ensure fresh token
+      if (_channel != null) {
+        _channel!.sink.close();
+      }
+
+      _channel = _rideService.connectToRideUpdates(accessToken);
       _channel?.stream.listen(
         (message) {
           final data = jsonDecode(message);
@@ -347,13 +356,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchRides() async {
     try {
+      print('Fetching rides for role: ${_currentUser['role']}'); // Debug print
       if (_currentUser['role'] == 'rider') {
         _rides = await _rideService.getRides(userRole: 'rider');
       } else if (_currentUser['role'] == 'driver') {
         _rides = await _rideService.getRides(userRole: 'driver');
       }
+      print('Fetched ${_rides.length} rides.'); // Debug print
       setState(() {});
     } catch (e) {
+      print('Error fetching rides: $e'); // Debug print
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -525,9 +537,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Home'),
+        title: const Text('InDrive'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchRides),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchRides,
+            tooltip: 'Refresh Rides',
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -539,229 +557,298 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
             },
+            tooltip: 'Logout',
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text('Welcome!', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 20),
-            Text('Phone Number: ${_currentUser['phone_number']}'),
-            Text('Current Role: ${_currentUser['role']}'),
-            const SizedBox(height: 20),
-            DropdownButton<String>(
-              value: _currentUser['role'],
-              onChanged: _updateRole,
-              items: <String>['rider', 'driver'].map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value.toUpperCase()),
-                );
-              }).toList(),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: <Widget>[
+            UserAccountsDrawerHeader(
+              accountName: Text(_currentUser['phone_number'] ?? 'N/A'),
+              accountEmail: Text('Role: ${_currentUser['role']}'),
+              currentAccountPicture: const CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Icon(Icons.person, size: 40, color: Colors.black),
+              ),
+              decoration: const BoxDecoration(color: Colors.black),
             ),
-            const SizedBox(height: 30),
-            // Driver Availability Toggle (only for drivers)
+            ListTile(
+              leading: const Icon(Icons.swap_horiz),
+              title: const Text('Switch Role'),
+              trailing: DropdownButton<String>(
+                value: _currentUser['role'],
+                onChanged: _updateRole,
+                items: <String>['rider', 'driver'].map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value.toUpperCase()),
+                  );
+                }).toList(),
+              ),
+            ),
             if (_currentUser['role'] == 'driver')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('Available for Rides:'),
-                  Switch(
-                    value: _currentUser['is_available'] ?? false,
-                    onChanged: (bool value) {
-                      _updateAvailability(value);
-                    },
-                  ),
-                ],
-              ),
-            const SizedBox(height: 30),
-            // Display Map for Active Ride
-            if (_activeRide != null)
-              Expanded(
-                child: GoogleMap(
-                  onMapCreated: _onMapCreated,
-                  initialCameraPosition: CameraPosition(
-                    target: _parseLatLng(_activeRide!['pickup_location']),
-                    zoom: 12.0,
-                  ),
-                  markers: _markers,
-                  polylines: _polylines,
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: true,
-                ),
-              )
-            else if (_currentUser['role'] == 'rider')
-              Column(
-                children: [
-                  Text(
-                    'Request a Ride',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _pickupController,
-                    readOnly:
-                        true, // Make it read-only as location is picked from map
-                    onTap: () async {
-                      final LatLng? selectedLocation = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MapScreen(),
-                        ),
-                      );
-                      if (selectedLocation != null) {
-                        _pickupController.text =
-                            '${selectedLocation.latitude}, ${selectedLocation.longitude}';
-                        // In a real app, you'd convert LatLng to a human-readable address
-                      }
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'Pickup Location',
-                      hintText: 'Tap to select from map',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.map),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _destinationController,
-                    readOnly: true, // Make it read-only
-                    onTap: () async {
-                      final LatLng? selectedLocation = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MapScreen(),
-                        ),
-                      );
-                      if (selectedLocation != null) {
-                        _destinationController.text =
-                            '${selectedLocation.latitude}, ${selectedLocation.longitude}';
-                        // In a real app, you'd convert LatLng to a human-readable address
-                      }
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'Destination Location',
-                      hintText: 'Tap to select from map',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.map),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _fareController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Proposed Fare (\$)',
-                      hintText: 'Enter your price offer',
-                      border: OutlineInputBorder(),
-                      suffixIcon: Icon(Icons.attach_money),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _isRequestingRide
-                      ? const CircularProgressIndicator()
-                      : ElevatedButton(
-                          onPressed: _requestRide,
-                          child: const Text('Request Ride'),
-                        ),
-                  const SizedBox(height: 30),
-                  Text(
-                    'My Rides',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: _rides.length,
-                      itemBuilder: (context, index) {
-                        final ride = _rides[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: ListTile(
-                            title: Text(
-                              '${ride['pickup_location']} to ${ride['destination_location']}',
-                            ),
-                            subtitle: Text('Status: ${ride['status']}'),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            // Driver UI
-            if (_currentUser['role'] == 'driver' && _activeRide == null)
-              Expanded(
-                child: Column(
-                  children: [
-                    Text(
-                      'Available Rides',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _rides.length,
-                        itemBuilder: (context, index) {
-                          final ride = _rides[index];
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: ExpansionTile(
-                              title: Text(
-                                '${ride['pickup_location']} to ${ride['destination_location']}',
-                              ),
-                              subtitle: Text(
-                                'Status: ${ride['status']} - Proposed: \$${ride['proposed_fare']}',
-                              ),
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Rider ID: ${ride['rider']}'),
-                                      Text('Ride ID: ${ride['id']}'),
-                                      const SizedBox(height: 10),
-                                      if (ride['driver_proposals'] != null &&
-                                          ride['driver_proposals'].isNotEmpty)
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              'Driver Bids:',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            ..._buildDriverBids(ride),
-                                          ],
-                                        )
-                                      else
-                                        const Text('No bids yet.'),
-                                      const SizedBox(height: 10),
-                                      if (ride['status'] == 'requested' &&
-                                          _currentUser['role'] == 'driver')
-                                        ElevatedButton(
-                                          onPressed: () =>
-                                              _showSubmitBidDialog(ride['id']),
-                                          child: const Text('Submit Bid'),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+              ListTile(
+                leading: const Icon(Icons.drive_eta),
+                title: const Text('Available for Rides'),
+                trailing: Switch(
+                  value: _currentUser['is_available'] ?? false,
+                  onChanged: (bool value) {
+                    _updateAvailability(value);
+                  },
                 ),
               ),
+            ListTile(
+              leading: const Icon(Icons.history),
+              title: const Text('Ride History'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const RideHistoryScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SettingsScreen(),
+                  ),
+                );
+              },
+            ),
           ],
         ),
+      ),
+      body: _activeRide != null
+          ? MapScreen(
+              initialCameraPosition: CameraPosition(
+                target: _parseLatLng(_activeRide!['pickup_location']),
+                zoom: 12.0,
+              ),
+              markers: _markers,
+              polylines: _polylines,
+              onMapCreated: _onMapCreated,
+            )
+          : _currentUser['role'] == 'rider'
+          ? _buildRiderHome()
+          : _buildDriverHome(),
+      floatingActionButton:
+          _currentUser['role'] == 'rider' && _activeRide == null
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const RideRequestScreen(),
+                  ),
+                );
+              },
+              label: const Text('Request New Ride'),
+              icon: const Icon(Icons.add),
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+            )
+          : null,
+    );
+  }
+
+  Widget _buildRiderHome() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your Rides',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _rides.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No rides requested yet. Tap + to request one!',
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _rides.length,
+                    itemBuilder: (context, index) {
+                      final ride = _rides[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8.0),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'From: ${ride['pickup_location']}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'To: ${ride['destination_location']}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text('Status: ${ride['status']}'),
+                              Text('Proposed Fare: \$${ride['proposed_fare']}'),
+                              if (ride['accepted_proposal'] != null)
+                                Text(
+                                  'Accepted Bid: \$${ride['accepted_proposal']['amount']} by Driver ${ride['accepted_proposal']['driver_id']}',
+                                  style: const TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              const SizedBox(height: 10),
+                              if (ride['status'] == 'requested' &&
+                                  ride['driver_proposals'] != null &&
+                                  ride['driver_proposals'].isNotEmpty)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Driver Bids:',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    ..._buildDriverBids(ride),
+                                  ],
+                                )
+                              else if (ride['status'] == 'requested')
+                                const Text('Waiting for driver bids...'),
+                              if (ride['status'] == 'accepted' ||
+                                  ride['status'] == 'started')
+                                ElevatedButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _activeRide = ride;
+                                      _updateRideMap(_activeRide);
+                                    });
+                                  },
+                                  child: const Text('View on Map'),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverHome() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Available Rides',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _rides.isEmpty
+                ? const Center(child: Text('No available rides at the moment.'))
+                : ListView.builder(
+                    itemCount: _rides.length,
+                    itemBuilder: (context, index) {
+                      final ride = _rides[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8.0),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'From: ${ride['pickup_location']}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'To: ${ride['destination_location']}',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text('Status: ${ride['status']}'),
+                              Text('Proposed Fare: \$${ride['proposed_fare']}'),
+                              const SizedBox(height: 10),
+                              if (ride['status'] == 'requested')
+                                ElevatedButton(
+                                  onPressed: () =>
+                                      _showSubmitBidDialog(ride['id']),
+                                  child: const Text('Submit Bid'),
+                                ),
+                              if (ride['status'] == 'accepted' ||
+                                  ride['status'] == 'started')
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Accepted Bid: \$${ride['accepted_proposal']['amount']}',
+                                      style: const TextStyle(
+                                        color: Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _activeRide = ride;
+                                          _updateRideMap(_activeRide);
+                                        });
+                                      },
+                                      child: const Text('View on Map'),
+                                    ),
+                                    // Add buttons for 'Start Ride', 'Complete Ride' etc.
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

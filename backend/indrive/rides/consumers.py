@@ -20,8 +20,13 @@ class RideConsumer(AsyncWebsocketConsumer):
         if token_param:
             try:
                 # Authenticate user using JWT token
+                print(f"Attempting WebSocket authentication with token: {token_param[:20]}...") # Print first 20 chars
                 access_token = AccessToken(token_param)
                 self.user = await self.get_user(access_token['user_id'])
+                if self.user and self.user.is_authenticated:
+                    print(f"WebSocket authenticated user: {self.user.phone_number}")
+                else:
+                    print("WebSocket authentication failed: User not authenticated after token processing.")
             except Exception as e:
                 print(f"WebSocket authentication failed: {e}")
                 await self.close()
